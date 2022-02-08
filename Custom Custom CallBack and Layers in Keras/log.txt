@@ -1,0 +1,22 @@
+Start of log
+At epoch:00, Learning Rate changed to:0.0180, At epoch 00, Train Acc:0.827, Val Acc:0.896
+At epoch:01, Learning Rate changed to:0.0162, At epoch 01, Train Acc:0.903, Val Acc:0.914
+At epoch:02, Learning Rate changed to:0.0146, At epoch 02, Train Acc:0.914, Val Acc:0.919
+At epoch:03, Learning Rate changed to:0.0131, At epoch 03, Train Acc:0.920, Val Acc:0.923
+At epoch:04, Learning Rate changed to:0.0118, At epoch 04, Train Acc:0.925, Val Acc:0.927
+At epoch:05, Learning Rate changed to:0.0106, At epoch 05, Train Acc:0.928, Val Acc:0.928
+At epoch:06, Learning Rate changed to:0.0096, At epoch 06, Train Acc:0.931, Val Acc:0.931
+At epoch:07, Learning Rate changed to:0.0086, At epoch 07, Train Acc:0.934, Val Acc:0.932
+At epoch:08, Learning Rate changed to:0.0077, At epoch 08, Train Acc:0.935, Val Acc:0.934
+At epoch:09, Learning Rate changed to:0.0070, At epoch 09, Train Acc:0.936, Val Acc:0.935
+At epoch:10, Learning Rate changed to:0.0063, At epoch 10, Train Acc:0.939, Val Acc:0.936
+At epoch:11, Learning Rate changed to:0.0056, At epoch 11, Train Acc:0.939, Val Acc:0.937
+At epoch:12, Learning Rate changed to:0.0051, At epoch 12, Train Acc:0.940, Val Acc:0.937
+At epoch:13, Learning Rate changed to:0.0046, At epoch 13, Train Acc:0.941, Val Acc:0.938
+At epoch:14, Learning Rate changed to:0.0041, At epoch 14, Train Acc:0.942, Val Acc:0.938
+At epoch:15, Learning Rate changed to:0.0037, At epoch 15, Train Acc:0.942, Val Acc:0.939
+At epoch:16, Learning Rate changed to:0.0033, At epoch 16, Train Acc:0.942, Val Acc:0.938
+At epoch:17, Learning Rate changed to:0.0030, At epoch 17, Train Acc:0.943, Val Acc:0.939
+At epoch:18, Learning Rate changed to:0.0027, At epoch 18, Train Acc:0.943, Val Acc:0.938
+At epoch:19, Learning Rate changed to:0.0024, At epoch 19, Train Acc:0.944, Val Acc:0.940
+End of log
