@@ -1,0 +1,146 @@
+```{r}
+# 1: Installing packages
+install.packages(c("tidyverse", "h2o", "lime", "recipes"))
+```
+
+```{r}
+# 2: Importing Libraries
+library(tidyverse) #For data storage and manipulation
+library(h2o)       #To build and train ML models
+library(lime)      #To explain model outcomes
+library(recipes)   #For streamline data pre-processing
+```
+
+```{r}
+# 2.1: Load the IBM Employee Attrition Data
+hr_data_raw <- read_csv("HR-Employee-Attrition.csv")
+hr_data_raw[1:10,]
+```
+
+```{r}
+# 3: Pre-process Data
+hr_data <- hr_data_raw %>%     #Pipe operation to chain multiple commands
+    mutate_if(is.character, as.factor) %>%
+    select(Attrition, everything())
+
+recipe_data <- hr_data %>%     #Data standardization through the use of 'Recipe' package to specify the pre-processing steps sequentially.
+  recipe(formula = Attrition ~ .) %>% #Specify formula
+  step_rm(EmployeeNumber) %>%  #Unique ID no - not predictive. Hence, remove column.
+  step_zv(all_predictors()) %>%#Removing constant columns - Zero Variance Filter.
+  step_center(all_numeric()) %>% #Center data (0 mean)
+  step_scale(all_numeric()) %>%  #Standard Deviation = 1
+  prep(data = hr_data) #Fitting the data to the recipe
+
+hr_data <- bake(recipe_data, new_data = hr_data) # ?bake - console
+glimpse(hr_data)
+```
+Transpose view of the table. (chr -> fct - factor types). dbl - double columns for numeric data types
+```{r}
+# 4.0: Start H20 Cluster and Create Train/Test Splits
+# Starting up a local H20 cluster before using a functionality of H2o.
+# H20 code base is an High-performance Java so basically initializing JVM for H20 when startup. And then all our interactions with H20 can be in either Python, the Web based graphical user interface called H20 flow or like we're going to be doing communicating to the actual underlying Java process using its R API.
+
+h2o.init(max_mem_size = "4g") # specifying a maximum memory size since this involves AutoML
+```
+
+```{r}
+# 4.1: Create Training and Test Sets
+set.seed(1234) #For outputs to be same/deterministic.
+hr_data_h2o <- as.h2o(hr_data) # HR data table to a H20 frame
+
+splits <- h2o.splitFrame(hr_data_h2o, c(0.7, 0.15), seed = 1234) #Automatically assigns the remaining 15% to the test set
+
+train <- h2o.assign(splits[[1]], "train" )
+valid <- h2o.assign(splits[[2]], "valid" )
+test  <- h2o.assign(splits[[3]], "test"  )
+```
+
+
+
+```{r}
+# 5: Run AutoML to Train and Tune Models
+# Defining predictor and response columns
+y <- "Attrition"              #Response column
+x <- setdiff(names(train), y) #Predictive variable column
+
+# When you run Auto ML, it will train various models, including linear models, GLM's, random forests, Gradient boosting machines, XGBoost and even ANN's in the form of deep neural nets and to stacked ensembles.
+aml <- h2o.automl(x = x, 
+                  y = y,
+                  training_frame = train,
+                  leaderboard_frame = valid,
+                  #max_runtime_secs  = 300,
+                  max_runtime_secs = 60)
+```
+
+And this way we save time and our effort because we don't really have to know the details, or if we do, we still don't want to specify them. This is an easier way for us to go about machine learning, because each one of these models including deep neural nets, stocked ensembles are great in boosting machines, linear models. Each one of them have their own hyper parameters with each one of their own settings, and this can be tricky to tune. So Auto ML automatically trains these models and uses a grid search and randomize grid search to find the optimal hyper parameter values.
+
+```{r}
+# 6: Leaderboard Exploration
+lb <- aml@leaderboard
+print(lb, n=nrow(lb))
+best_model <- aml@leader
+#model_ids <-as.data.frame(aml@leaderboard$model_id)[,1]
+#best_model <- h2o.getModel(grep("StackedEnsemble_BestOfFamily", model_ids, value=TRUE)[1])
+```
+
+
+```{r}
+# 7: Model Performance Evaluation
+perf <- h2o.performance(best_model, newdata = test)
+optimal_threshold <- h2o.find_threshold_by_max_metric(perf, "f1")
+metrics <- as.data.frame(h2o.metric(perf, optimal_threshold))
+t(metrics)
+#null_error_rate <- metric$tns / (metric$tps + metric$tns + metric$fps + metric$fns )
+#null_error_rate #Jumped from 89% to 79% which concludes, accuracy is not the right metric to look at here.
+
+#
+
+#metrics$tps / (metric$tps + metric$fns) #Recall
+```
+
+Precision is when the model predicts YES, how often it's actually YES. And recall which is also the specificity or the TPR is when the actual value is YES, how often the model is correct.
+
+So HR will really care about recall or when the actual value of attrition is YES, how often our model predicts YES, so we see our recall for our model is at 72%. And in the HR employee attrition context, this means that 72% more employees that could potentially be targeted prior to quitting. From that's standpoint, an organization that loses 100 people per year could possibly target 72 employees implementing measures to retain them.
+
+Tradeoff between accuracy and interpretability:
+It's a common agreement in the machine learning field that such a tradeoff actually exists, and some people would draw a curve line expressing that relationship this way. So models that are highly interpretable are usually less accurate than those that we don't really understand. So, what we want are the models in this region, models that are highly accurate and also highly interpretable at the same time. And this is where LIME (Local Interpretable Model-agnostic Explanations) comes into play.By Interpretable explanations, we mean that we're able to understand what the model does and which features it picks in order to create predictions and by model agnostic, we mean that this framework can be applied to any model, including any black box model that we know of today and also models that may be developed in the future. In essence, the assumption is that for any model, if you try to apply lime, for example, if you try to apply to linear regression, which is highly interpretable linear model, it still assumes that this is a black box model and lastly, LOCAL means that it is observation specific. So it gives you this information about every single observation that you have in the data set.
+
+Do I really need LIME, or can I just trust my model based on the accuracy alone? Well, your model might be getting very high accuracy on your test set, but I think the simple answer is that you can't really test it. And the reason being is that unless you know what the model is picking up on to make predictions, you don't know if it's the genuine signal or not. You don't know if it's noise or something completely irrelevant that your models picking up on, and that's exactly where LIME is Useful. LIME can be applied to image data and even NLP models for text data. But here, we're just focusing on tabular data that most businesses are working with.
+
+The model that we have predicts the probability of someone leaving the company, and this probability is then converted to a class prediction of either yes or no. Yes, indicating that the employee leaves the company and no indicates that they stay on. And this is called binary classification. However, this doesn't really solve or get at the main objective, which is for business, for businesses to make better decisions. It only tells us if someone is at high risk of attrition. So how do we change this decision making and actually improve our organization? And it really comes down to levers and probability. So our ML model tells us which employees are at the highest risk and therefore highest probability, and we can hone in on these individuals. But we need a different tool to understand why it is that this employer individual is leaving in the first place. Our model tells us the probability, but it doesn't tell us exactly why. This is where LIME comes into play. LIME uncovers the levers or features or predictors that we can control to make business improvements to retain employees. So to get started, it's really easy to implement LIME in R. The algorithm via the LIME packages split into two main operations or functions. One is Lime, and the other one is explain.
+
+```{r}
+# 8: Baselearner Variable Importance 
+# Explainer for attrition (Col.31)
+explainer <- lime(as.data.frame(train[,-31]), best_model, bin_continuous=FALSE)
+explanation <- explain(as.data.frame(test[3:10, -31]),
+                       explainer = explainer,
+                       kernel_width = 1, #used to convert distance to a similarity metric
+                       n_features = 5, 
+                       n_labels = 1)
+plot_features(explanation) #Run in the console to zoom
+plot_explanations(explanation)
+```
+
+From the feature explanation plot, here in our case of employee attrition, LIME detects "overtime" the lever as a key feature that supports employee turnover and businesses now can use this as a way to control the overtime feature by implementing a limited overtime or no overtime at all policy in their organizations. And it may be required that they really have not promoted these employees for a while, even though it was warranted. So perhaps they could explore those avenues as well. 
+
+
+For more info and better explanations about LIME: https://www.slideshare.net/0xdata/interpretable-machine-learning-using-lime-framework-kasia-kulma-phd-data-scientist
+
+
+Deeper Dive and Resources:
+1.  https://www.h2o.ai/blog/interview-with-patrick-hall-machine-learning-h2o-ai-machine-learning-interpretability/
+2.  https://www.h2o.ai/blog/interpretability-the-missing-link-between-machine-learning-healthcare-and-the-fda/
+3.  https://www.darpa.mil/program/explainable-artificial-intelligence
+4.  https://docs.google.com/viewer?url=https%3A%2F%2Fwww.darpa.mil%2Fattachments%2FXAIIndustryDay_Final.pptx
+5.  https://www.darpa.mil/attachments/XAIProgramUpdate.pdf
+6.  https://github.com/h2oai/mli-resources/blob/master/cheatsheet.png
+7.  https://www.oreilly.com/content/testing-machine-learning-interpretability-techniques/
+8.  https://www.oreilly.com/conferences/
+9.  https://www.youtube.com/watch?v=RcUdUZf8_SU
+10. https://www.youtube.com/watch?v=vUqC8UPw9SU
+11. https://www.youtube.com/watch?v=Q8rTrmqUQsU
+12. https://www.youtube.com/watch?v=3uLegw5HhYk
+13. https://www.youtube.com/watch?v=Ds1eRF7wpCU
+
+
