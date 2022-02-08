@@ -1,0 +1,52 @@
+---
+title: "Neural Network using the R Neuralnet Package"
+output: html_document
+---
+Packages Needed for this project:
+```{r}
+library(neuralnet)
+library(caret)
+library(tidyverse)
+```
+Create a Data Frame
+
+We're going to create a new variable called mpg2.  If the car has greater than 22 mpg then it's a one else less than 0.  This creates a binary variable, which we can use in the NN.
+
+```{r}
+hist(mtcars$mpg)
+mtcars$mpg2 <- ifelse(mtcars$mpg > 22,1,0)
+data <- mtcars[,2:12]
+rows <- sample(nrow(data), nrow(data) * .75, replace = T)
+train <- data[rows,]
+test <- data[-rows,]
+```
+
+We are going to use all the variables.  A '.' signifies all the variables in the data frame.  This helps time wise since you don't have to spell out all the columns.  It is also a logistic neural net model.
+
+```{r}
+model <- neuralnet(mpg2 ~ ., train, hidden = 3,
+                  act.fct = "logistic", linear.output = F )
+?neuralnet
+```
+
+
+
+```{r}
+plot(model)
+```
+
+
+
+
+
+```{r}
+predict <- neuralnet::compute(model, test)
+predict
+```
+
+```{r}
+results <- ifelse(predict$net.result > .5, 1,0)
+
+table(results, test$mpg2)
+```
+

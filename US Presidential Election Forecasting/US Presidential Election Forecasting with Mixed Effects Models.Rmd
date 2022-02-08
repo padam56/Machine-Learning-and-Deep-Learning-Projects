@@ -1,0 +1,184 @@
+---
+title: "Forecasting Presidential Elections Rhyme Project (Filled In)"
+output: 
+  html_document:
+    toc: true
+    toc_float: yes
+    number_sections: false
+    code_folding: hide
+    theme: flatly
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+#mixed effects model package in R
+require(lme4)
+
+#multivariate student t distribution package for simulating errors (more conservative than normal)
+require(mvtnorm)
+
+#load helper packages
+require(magrittr)
+require(plyr)
+require(dplyr)
+require(reshape2)
+```
+
+```{r}
+#set working directory to load file
+setwd("C://Users/Administrator/Desktop/Election Forecasting Project/Data/")
+#load dataset
+fundamental.data<-read.csv("fundamental_data_election.csv",stringsAsFactors=F,header=T)
+
+#note data is at level of state x election year, which is what we need
+#it has 561 rows which is 51 (states plus DC) x 11 elections since 1980 including 2020
+#variables in data set
+
+  # election_date: date of election observation is for
+  # election_year: year of election observation is for
+  # democratic_vote_share_adj: share of votes for democratic party in state in a given election year (ignores third party votes)
+  # republican_vote_share_adj: share of votes for republican party in state in a given election year (ignores third party votes)
+  # previous_party: previous party that won election (Democratic or Republican)
+  # state: two letter state code observation is for
+  # state_name: state name observation is for
+  # region: region state is in
+  # electoral_votes: number of electoral votes in state (as of 2016)
+  # PVI: partisan voter index of state in given election, calculated as mix of previous two elections (75% and 25%)
+  # state_unemployment: monthly state unemployment rate in given year just before election date
+  # state_house_price: year over year state house price growth just before election date
+  # state_med_income: year over year state median household income growth just before election date
+  # state_personal_income: year over year state personal income growth just before election date
+  # nat_gdp: quarter over quarter national GDP growth just before election date
+  # nat_nonfarm_payroll: year over year national nonfarm payroll growth just before election date
+  # nat_ind_production: year over year national industrial production growth just before election date
+  # nat_personal_exp: year over year national personal expenditure growth just before election date
+  # nat_personal_inc: year over year national personal income growth just before election date
+  # nat_price_index: year over year inflation growth just before election date
+  # stock_market: year over year stock market growth just before election date
+  # age_under_18: fraction of individuals under 18 in state as of most recent census before election date
+  # age_18_to_40: fraction of individuals 18-40 in state as of most recent census before election date
+  # age_40_to_65: fraction of individuals 40-65 in state as of most recent census before election date
+  # age_65_plus: fraction of individuals older than 65 in state as of most recent census before election date
+  # gender_male: fraction of men in state as of most recent census before election date
+  # gender_female: fraction of females in state as of most recent census before election date
+  # race_white: fraction of white individuals in state as of most recent census before election date
+  # race_black: fraction of black individuals in state as of most recent census before election date
+  # educ_hs_or_less: fraction of individuals with high school or less in state as of most recent census before election date
+  # educ_less_than_4_yrs: fraction of individuals with some college in state as of most recent census before election date
+  # educ_ba_or_post_grad: fraction of individuals with college degree in state as of most recent census before election date
+  # nonurban: fraction of individuals living in nonurban areas in state as of most recent census before election date
+  # urban: fraction of individuals living in urban areas in state as of most recent census before election date
+  # central.city: fraction of individuals living in nonurban areas in state as of most recent census before election date
+  # density: fraction of individuals under 18 in state as of most recent census before election date
+  # net_approval: net approval rating of president just before election from gallop (approval-disapproval)
+  # incumbent: 1 if democrat is running for relection; -1 if republican is running for relection; 0 otherwise
+
+# *note economic variables at state and national level were winsorized (capped at 5th and 95th percentiles)
+# *this is because covid created levels of these variables that were historically never seen (such as high unemployment rates)
+# *capping at previous historical high levels reduces outlier influence and overfitting
+```
+
+```{r}
+#explore dataset
+dim(fundamental.data); colnames(fundamental.data); head(fundamental.data)
+```
+
+```{r}
+#date to partition train and test data sets
+test.election.date<-2020
+train<-fundamental.data[fundamental.data$election_year<test.election.date,]
+test<-fundamental.data[fundamental.data$election_year==test.election.date,]
+```
+
+```{r}
+#train mixed effects model; specify fixed effects predictors and random intercepts for error simulations
+#fixed effects specified like a regular linear regression in R as in lm function
+#random effects specified using a different notation; random intercepts denoted by (1|group_variable)
+#for national error use election_year, regional error use region, & state error is residual (since model is at state level)
+fundamental.model<-lmer(republican_vote_share_adj~PVI+state_unemployment+nat_gdp+race_white+
+                          (1|election_year)+(1|region),
+                        data=train)
+```
+
+```{r}
+#extract random effects variances from model fit
+vote.share.var<-as.data.frame(VarCorr(fundamental.model))
+vote.share.var
+
+national.error.var<-matrix(vote.share.var$vcov[vote.share.var$grp=="election_year"])
+regional.error.var<-matrix(vote.share.var$vcov[vote.share.var$grp=="region"])
+state.error.var<-matrix(vote.share.var$vcov[vote.share.var$grp=="Residual"])
+```
+
+```{r}
+#set constants for simulation
+B<-1000 #number of times to simulate election
+n.years<-length(unique(train$election_year))
+n.states<-length(unique(train$state))
+n.regions<-length(unique(train$region))
+df<-n.years-1 #set df for student t simulations as number of elections minus 1
+state.region.mapping<-unique(fundamental.data[,c("state","region")])
+electoral.votes<-unique(fundamental.data[,c("state","electoral_votes")])
+```
+
+```{r}
+#simulate election B times
+
+#repeat each row of test dataset B times to create expanded data across all simulations
+#note here each columns is therefore one simulation (rows are states + DC)
+test.sim<-test[rep(1:nrow(test),times=B),]
+dim(test.sim)
+
+#create matrix of test set predictions; note flag for re.form=NA to set random effects to zero for fixed effects prediction
+fund.pred<-predict(fundamental.model,newdata=test.sim,re.form=NA)
+pred.rep.share<-matrix(fund.pred,ncol=B)
+dim(pred.rep.share); pred.rep.share[1:5,1:5]
+
+#simulate random errors at national level
+national.error<-rep(rmvt(n=B,sigma=national.error.var,df=df),each=n.states)
+national.error<-matrix(national.error,ncol=B)
+dim(national.error); national.error[1:5,1:5]
+
+#simulate random errors at regional level
+#draw each region B times
+region.error<-rmvt(n=n.regions*B,sigma=regional.error.var)
+region.error<-matrix(region.error,ncol=B)
+dim(region.error); region.error[,1:5]
+
+#replicate regional simulations so that states in same region get same regional error
+#this creates correlation among states within a region
+head(state.region.mapping)
+region.state.index<-as.numeric(factor(state.region.mapping$region))
+region.error<-region.error[region.state.index,]
+dim(region.error); data.frame(state.region.mapping,region.error)[1:5,1:5]
+
+#simulate random errors at state level
+#draw each state B times
+state.error<-rmvt(n=n.states*B,sigma=state.error.var,df=df)
+state.error<-matrix(state.error,ncol=B)
+dim(state.error); state.error[1:5,1:5]
+
+#calculate vote shares by simulation
+#add three simulated errors to predicted republican vote shares
+pred.rep.share<-pred.rep.share+national.error+region.error+state.error
+```
+
+```{r}
+#calculate win probabilities for republicans by state across simulations
+rep.state.win.prob<-apply(pred.rep.share,1,function(x) sum(x>0.5)/length(x))
+rep.state.win.prob<-data.frame("state"=electoral.votes$state,"rep_win_prob"=rep.state.win.prob)
+rep.state.win.prob
+```
+
+```{r}
+#calculate electoral votes that republicans win by state in each election
+rep.EV<-apply(pred.rep.share,2,function(x) sum(electoral.votes$electoral_votes[x>0.5]))
+length(rep.EV)
+
+#calculate probability that each party wins the election
+winner<-ifelse(rep.EV>=270,"R","D")
+prop.table(table(winner))
+```
+
